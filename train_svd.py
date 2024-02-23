@@ -113,6 +113,74 @@ def rand_log_normal(shape, loc=0., scale=1., device='cpu', dtype=torch.float32):
 # noise_d_high = 64
 # sigma_data = 0.5
 
+class OnlineDataset(Dataset):
+    def __init__(self, num_samples=100000, width=1024, height=576, sample_frames=25):
+        """
+        Args:
+            num_samples (int): Number of samples in the dataset.
+            channels (int): Number of channels, default is 3 for RGB.
+        """
+        self.num_samples = num_samples
+        # Define the path to the folder containing video frames
+        self.base_folder = 'bdd100k/images/track/mini'
+        self.folders = os.listdir(self.base_folder)
+        self.channels = 3
+        self.width = width
+        self.height = height
+        self.sample_frames = sample_frames
+
+    def __len__(self):
+        return self.num_samples
+
+    def __getitem__(self, idx):
+        """
+        Args:
+            idx (int): Index of the sample to return.
+
+        Returns:
+            dict: A dictionary containing the 'pixel_values' tensor of shape (16, channels, 320, 512).
+        """
+        # Randomly select a folder (representing a video) from the base folder
+        chosen_folder = random.choice(self.folders)
+        folder_path = os.path.join(self.base_folder, chosen_folder)
+        frames = os.listdir(folder_path)
+        # Sort the frames by name
+        frames.sort()
+
+        # Ensure the selected folder has at least `sample_frames`` frames
+        if len(frames) < self.sample_frames:
+            raise ValueError(
+                f"The selected folder '{chosen_folder}' contains fewer than `{self.sample_frames}` frames.")
+
+        # Randomly select a start index for frame sequence
+        start_idx = random.randint(0, len(frames) - self.sample_frames)
+        selected_frames = frames[start_idx:start_idx + self.sample_frames]
+
+        # Initialize a tensor to store the pixel values
+        pixel_values = torch.empty((self.sample_frames, self.channels, self.height, self.width))
+
+        # Load and process each frame
+        for i, frame_name in enumerate(selected_frames):
+            frame_path = os.path.join(folder_path, frame_name)
+            with Image.open(frame_path) as img:
+                # Resize the image and convert it to a tensor
+                img_resized = img.resize((self.width, self.height))
+                img_tensor = torch.from_numpy(np.array(img_resized)).float()
+
+                # Normalize the image by scaling pixel values to [-1, 1]
+                img_normalized = img_tensor / 127.5 - 1
+
+                # Rearrange channels if necessary
+                if self.channels == 3:
+                    img_normalized = img_normalized.permute(
+                        2, 0, 1)  # For RGB images
+                elif self.channels == 1:
+                    img_normalized = img_normalized.mean(
+                        dim=2, keepdim=True)  # For grayscale images
+
+                pixel_values[i] = img_normalized
+        return {'pixel_values': pixel_values}
+
 
 class DummyDataset(Dataset):
     def __init__(self, num_samples=100000, width=1024, height=576, sample_frames=25):
